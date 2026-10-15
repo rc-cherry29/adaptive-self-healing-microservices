@@ -1,0 +1,322 @@
+# Adaptive Self-Healing Framework for Microservices Using NRDA
+
+**Project README and Live Demonstration Guide**
+**Stack:** Java, Spring Boot, Eureka, API Gateway, Docker (where configured), MySQL, React, Vite, Tailwind CSS, Recharts
+**Environment:** Windows PowerShell, IntelliJ IDEA, local development
+
+## 1. Project overview
+
+The project monitors a microservices application, identifies service-down and slow-response conditions, chooses a recovery action, executes it, verifies the outcome, and records experimental results in MySQL.
+
+Two decision modes are available:
+
+- **BASELINE:** predefined recovery actions (in the tested scenarios, RESTART for SERVICE_DOWN and RETRY for SLOW_RESPONSE).
+- **NRDA:** adaptive recovery decision-making with strategies including RESTART, RETRY, SCALE_OUT, REROUTE, and SWITCH_TO_BACKUP.
+
+The React **NRDA Control Center** displays service health, experiment history, analytics, decision mode, and a local fault-injection lab. It retrieves real data through the Monitoring Service REST API; the browser does not connect directly to MySQL.
+
+> **Research claim:** The recorded experiments demonstrate adaptive action selection and execution. They do **not** establish that NRDA consistently reduces end-to-end downtime. Fast action execution and actual primary-service restoration are different metrics.
+
+## 2. System architecture
+
+```mermaid
+flowchart TD
+    U[User / Researcher] --> UI[React Dashboard :5174]
+    UI -->|Vite /api proxy| API[Monitoring Service :8083]
+    API --> DB[(MySQL self_healing_db)]
+    API --> REG[Eureka :8761]
+    API --> PROD[Product Service :8081]
+    API --> ORD[Order Service :8082]
+    GW[API Gateway :8080] --> PROD
+    GW --> ORD
+    API --> DEC[NRDA / BASELINE Decision Logic]
+    DEC --> ACT[Recovery Execution + Verification]
+    ACT --> DB
+```
+
+The diagram represents the main components and their roles; exact internal calls depend on your local Spring Boot implementation.
+
+## 3. Service ports
+
+| Component | Port | Purpose |
+|---|---:|---|
+| Eureka Server | 8761 | Service registry |
+| API Gateway | 8080 | Client routing |
+| Product Service | 8081 | Product endpoints and slow-fault injection |
+| Order Service | 8082 | Order endpoints |
+| Monitoring Service | 8083 | Failure detection, NRDA logic, dashboard REST API |
+| React + Vite | 5174 | Dashboard (your currently used port) |
+| MySQL | 3306 | Experiment database (default, if configured this way) |
+
+## 4. Project structure
+
+Your existing Spring Boot project contains separate modules for Eureka, Product, Order, Gateway, and Monitoring Services. The relevant frontend and integration files are:
+
+```text
+ eureka-server/                          # local parent workspace (name may vary)
+ ├── monitoring-service/
+ │   └── monitoring-service/
+ │       ├── pom.xml
+ │       └── src/main/
+ │           ├── java/com/selfhealing/monitoring_service/
+ │           │   ├── MonitoringServiceApplication.java
+ │           │   ├── controller/NRDADashboardController.java
+ │           │   └── service/HealthMonitoringService.java
+ │           └── resources/application.properties
+ └── nrda-frontend/
+     ├── package.json
+     ├── vite.config.js
+     ├── index.html
+     └── src/
+         ├── main.jsx
+         ├── App.jsx
+         ├── api.js
+         └── index.css
+```
+
+Paths for other backend modules may vary depending on your IntelliJ workspace.
+
+## 5. Prerequisites
+
+- Java and Maven configured for the existing Spring Boot services.
+- Node.js and npm installed for the React frontend.
+- MySQL running, with database **`self_healing_db`** and existing **`experiment_results`** table.
+- All backend dependencies and application properties already configured in IntelliJ.
+- The dashboard controller copied to `com.selfhealing.monitoring_service.controller` and detected by Spring Boot.
+- Docker Desktop only if your recovery strategies or other services require it.
+
+**Never commit database passwords or secrets.** Keep the demo local; the fault-injection endpoint is not intended for public deployment.
+
+## 6. Start the project — step by step
+
+### Step 1 — Start MySQL
+
+Start your local MySQL service and confirm that the `self_healing_db` database is accessible. If your services use Docker, start the required containers too.
+
+### Step 2 — Start Spring Boot services in IntelliJ
+
+Start in this practical order:
+
+1. Eureka Server (`8761`)
+2. Product Service (`8081`)
+3. Order Service (`8082`)
+4. API Gateway (`8080`)
+5. Monitoring Service (`8083`)
+
+Wait for each application to start. Open **http://localhost:8761/** to inspect service registration. If a service isn't running, its health card may display `DOWN` or `TIMEOUT`.
+
+### Step 3 — Configure NRDA mode
+
+In `monitoring-service/src/main/resources/application.properties`:
+
+```properties
+recovery.decision-mode=NRDA
+dashboard.fault-controls-enabled=false
+```
+
+Keep the existing MySQL configuration. Restart the Monitoring Service whenever these properties change.
+
+### Step 4 — Verify the backend dashboard API
+
+In PowerShell:
+
+```powershell
+Invoke-RestMethod "http://localhost:8083/api/dashboard/summary"
+Invoke-RestMethod "http://localhost:8083/api/dashboard/services"
+Invoke-RestMethod "http://localhost:8083/api/dashboard/experiments?limit=5"
+Invoke-RestMethod "http://localhost:8083/api/dashboard/analytics"
+```
+
+The `/summary` response contains `decisionMode`, `totalExperiments`, `nrdaExperiments`, `verifiedSuccesses`, and `failedAttempts`. Counts change as experiments are added.
+
+### Step 5 — Start the React frontend
+
+Open **a separate PowerShell window**:
+
+```powershell
+cd "C:\Users\ramch\OneDrive\Desktop\eureka-server\nrda-frontend"
+npm install
+npm run dev -- --port 5174
+```
+
+Open **http://localhost:5174/** in Chrome. Keep the Vite terminal open while presenting.
+
+> If port `5174` is already in use, first open http://localhost:5174/ — an existing Vite server may already be running. Do not start a duplicate. Alternatively, use `npm run dev -- --port 5175` and open that port.
+
+## 7. Frontend pages and what to demonstrate
+
+| Page | Demonstrate |
+|---|---|
+| **Overview** | Decision mode, experiment totals, current service health |
+| **Analytics** | NRDA vs BASELINE action counts and measured durations |
+| **Experiment logs** | New MySQL rows with mode, failure, action, verification, time |
+| **Fault lab** | Enable/disable a slow-response fault in a controlled local demo |
+| **Decision engine** | Available recovery actions and decision-flow explanation |
+
+The interface polls dashboard data approximately every **5 seconds**. A new experiment may appear after the Monitoring Service detects and logs it. Do not claim a service recovered just because the UI refreshed.
+
+## 8. Live demo script (about 5–7 minutes)
+
+### Part A — Introduction (30–45 seconds)
+
+> “This is our Adaptive Self-Healing Framework for Microservices using the Novel Recovery Decision Algorithm, NRDA. It monitors microservices, detects failures, selects recovery actions, verifies outcomes, and stores results in MySQL. Our React dashboard provides live monitoring and experimental analysis.”
+
+### Part B — Show running services (about 1 minute)
+
+1. Show the Eureka dashboard at **http://localhost:8761/**.
+2. Show **NRDA Control Center** at **http://localhost:5174/**.
+3. Open **Overview** and describe the service-health cards.
+4. Point out that `UP` is a health response, while `REACHABLE` means an HTTP response was obtained without a verified health result.
+
+### Part C — Show experiments and analytics (about 1 minute)
+
+1. Open **Experiment logs**.
+2. Show `SERVICE_DOWN` and `SLOW_RESPONSE` records.
+3. Open **Analytics** and explain BASELINE vs NRDA action selection.
+4. Explain that action duration is **not** the same as primary-service downtime.
+
+### Part D — Enable local fault lab (about 1–2 minutes)
+
+In `application.properties`, temporarily set:
+
+```properties
+dashboard.fault-controls-enabled=true
+recovery.decision-mode=NRDA
+```
+
+**Restart Monitoring Service** and verify that the Product Service is healthy before injecting the fault.
+
+In the dashboard, open **Fault lab** and click **Enable Slow Response**. Wait about **20–25 seconds**, watching Monitoring Service logs and Experiment History. Click **Disable Slow Response** immediately afterward.
+
+**PowerShell fallback** if the UI buttons are unavailable:
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8081/fault/slow/enable" -Method POST
+Start-Sleep -Seconds 25
+Invoke-RestMethod -Uri "http://localhost:8081/fault/slow/disable" -Method POST
+```
+
+**Expected:** The Monitoring Service may classify the fault as `SLOW_RESPONSE` and attempt `RETRY` or `SCALE_OUT`. While the fault remains enabled, `RECOVERY_FAILED` is a valid outcome. A later `RETRY_RESPONSE_NORMAL` record may reflect that the fault was disabled; it is not proof of automatic fault removal.
+
+### Part E — Show new MySQL records (about 1 minute)
+
+Return to **Experiment logs**, refresh if necessary, and show the newest IDs. Optionally query MySQL:
+
+```sql
+SELECT id, decision_mode, service_name, failure_type,
+       recovery_action, verification_result,
+       recovery_time_ms, downtime_ms,
+       gateway_recovery_time_ms, primary_downtime_ms
+FROM self_healing_db.experiment_results
+ORDER BY id DESC
+LIMIT 10;
+```
+
+### Part F — Explain the contribution and limitations (30–60 seconds)
+
+> “NRDA supports multiple recovery strategies, including restart, retry, scale-out, reroute, and switching to backup. The experiments demonstrate adaptive recovery decisions. Some alternative actions execute in milliseconds, but our current dataset does not prove a consistent reduction in overall downtime. We report missing gateway measurements and small sample sizes transparently.”
+
+## 9. Existing research results (historical snapshot)
+
+These values come from the previously collected **78-row** experiment snapshot. The live dashboard may show more records after additional tests.
+
+| Mode | Failure | Action | Records | Mean action time | Mean recorded primary downtime |
+|---|---|---|---:|---:|---:|
+| BASELINE | SERVICE_DOWN | RESTART | 20 | 25,302.15 ms | 41,564.15 ms |
+| NRDA | SERVICE_DOWN | RESTART | 29 | 26,626.41 ms | 62,196.62 ms |
+| NRDA | SERVICE_DOWN | REROUTE | 1 | 57.00 ms | 110,010.00 ms |
+| NRDA | SERVICE_DOWN | SWITCH_TO_BACKUP | 5 | 74.60 ms | 122,759.60 ms |
+
+Gateway timing coverage in the same snapshot:
+
+| Mode / action | Measured / total | Mean gateway measurement |
+|---|---:|---:|
+| BASELINE / RESTART | 9 / 20 | 8,114.11 ms |
+| NRDA / REROUTE | 1 / 1 | 0 ms |
+| NRDA / RESTART | 0 / 29 | Not measured |
+| NRDA / SWITCH_TO_BACKUP | 3 / 5 | 428.00 ms |
+
+**Interpretation rules:**
+
+- A gateway measurement of **0 ms** means **available at the first probe**, not proven zero downtime.
+- A `NULL` measurement means **not recorded**, not zero.
+- `SLOW_RESPONSE` rows can represent individual attempts; `SERVICE_DOWN` rows generally represent incidents. Do not combine them into a single incident success rate.
+- The dashboard's `verifiedSuccesses` is a count of rows with selected verification labels, not a controlled scientific recovery success percentage.
+- Comparing NRDA rerouting with BASELINE restarting does not isolate the algorithm's effect because the action and experimental conditions differ.
+
+## 10. Backend dashboard API reference
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/api/dashboard/summary` | Experiment totals and configured decision mode |
+| GET | `/api/dashboard/services` | Live HTTP/actuator probes of four services |
+| GET | `/api/dashboard/experiments?limit=150` | Recent experiment rows (max 500) |
+| GET | `/api/dashboard/analytics` | Grouped recovery metrics and gateway coverage |
+| POST | `/api/dashboard/faults/slow/enable` | Enable slow fault; local-only, explicitly gated |
+| POST | `/api/dashboard/faults/slow/disable` | Disable slow fault; local-only, explicitly gated |
+
+The React Vite configuration proxies `/api` requests to **http://localhost:8083**, avoiding direct browser-to-database access.
+
+## 11. Troubleshooting
+
+| Problem | What to do |
+|---|---|
+| `404` on `/api/dashboard/summary` | Verify `NRDADashboardController.java` is under the correct package; restart Monitoring Service |
+| `500` on dashboard API | Check MySQL connectivity, `self_healing_db`, `experiment_results` schema, and server logs |
+| `JdbcTemplate` bean missing | Ensure `spring-boot-starter-jdbc` is in Monitoring Service `pom.xml`; reload Maven |
+| `npm install` gives `EJSONPARSE` | Ensure `package.json` contains one valid JSON object, not two concatenated objects |
+| Port `5173` / `5174` already in use | Open the existing Vite URL or stop the old Vite process; use a different port if needed |
+| Dashboard opens but has no data | Confirm Monitoring Service `:8083`, API `/summary`, and Vite `/api` proxy |
+| Fault Lab returns `403` | Enable `dashboard.fault-controls-enabled=true` locally and restart Monitoring Service |
+| Product Service shows `TIMEOUT` during fault | Expected possibility when its HTTP responses are intentionally delayed |
+| No new experiment appears | Check Product Service and Monitoring Service logs, wait for detection and database logging, then refresh |
+| PowerShell command returns connection refused | Confirm the corresponding Spring Boot application is running on the expected port |
+
+## 12. After-demo cleanup
+
+1. **Disable the injected fault**, even if the demonstration fails halfway:
+
+   ```powershell
+   Invoke-RestMethod -Uri "http://localhost:8081/fault/slow/disable" -Method POST
+   ```
+
+2. Restore the Monitoring Service properties:
+
+   ```properties
+   recovery.decision-mode=NRDA
+   dashboard.fault-controls-enabled=false
+   ```
+
+3. Restart the Monitoring Service.
+4. Confirm the Product Service is responsive and dashboard API `/summary` works.
+5. Stop the React development server with **Ctrl+C** when finished.
+
+## 13. Limitations and future scope
+
+**Current limitations:** Unequal experiment counts, incomplete gateway recovery measurements, coarse polling intervals, potential differences in fault duration and test conditions, and no demonstrated sustained recovery under an intentionally persistent slow-response fault.
+
+**Future work:** Controlled and repeated fault campaigns, standardized timing instrumentation, end-to-end client availability metrics, statistically sound comparisons, better escalation from RETRY to SCALE_OUT, security/authentication for administrative controls, and historical incident visualizations.
+
+## 14. Final viva questions (short answers)
+
+**Q: What is NRDA?**
+A: A recovery decision mechanism that selects among multiple corrective actions based on runtime failure conditions.
+
+**Q: Why not always restart?**
+A: Restart can be expensive; routing to a healthy backup may restore client access faster, depending on the system and failure.
+
+**Q: What is the role of Eureka?**
+A: It provides service discovery so components can locate registered services.
+
+**Q: Why MySQL?**
+A: It stores experiment results and recovery history for analysis and reproducibility.
+
+**Q: What is the difference between recovery time and downtime?**
+A: Action execution time measures how long a recovery operation took; downtime measures how long service availability was disrupted.
+
+**Q: Did NRDA prove better performance?**
+A: It demonstrated adaptive recovery actions, but the current experiments are insufficient to prove consistent end-to-end downtime improvement.
+
+---
+
+**Demo checklist:** MySQL running · Eureka up · Product up · Order up · Gateway up · Monitoring up · React running · NRDA selected · Fault disabled before and after test.

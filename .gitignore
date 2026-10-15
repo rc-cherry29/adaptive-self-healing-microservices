@@ -1,0 +1,31 @@
+# Java / Spring Boot
+**/target/
+**/.mvn/wrapper/maven-wrapper.jar
+*.class
+*.log
+
+# React
+**/node_modules/
+**/dist/
+**/.vite/
+
+# IntelliJ / VS Code
+**/.idea/
+**/.vscode/
+*.iml
+
+# Environment and secrets
+**/.env
+**/.env.*
+!**/.env.example
+**/application-local.properties
+**/application-local.yml
+**/application-secrets.properties
+**/application-secrets.yml
+*.pem
+*.key
+*.p12
+
+# Operating system
+.DS_Store
+Thumbs.db
